@@ -1,74 +1,80 @@
 # Configuración de un servidor DNS esclavo con BIND9
 
-Documentación de la práctica para desplegar un servidor DNS secundario con BIND9 en Debian. La estructura técnica se ha adaptado de la guía de Francisco Javier Cruces Doval, **Configuración de un servidor DNS esclavo con BIND9** (10 de mayo de 2025), ajustando los nombres, las direcciones IP y las evidencias a este laboratorio.
+Práctica de configuración de un servidor DNS secundario con BIND9 en Debian. La estructura se adapta a la guía de referencia de Francisco Javier Cruces Doval y documenta el laboratorio con las capturas propias almacenadas en [`Evidencia/`](Evidencia/), colocadas en orden cronológico dentro de cada fase.
 
-**Guía de referencia:** [javiercd.es — Configuración de un servidor DNS esclavo con BIND9](https://www.javiercd.es/posts/servicios/dns/bind9/dns_esclavo/dns_esclavo/)
+**Guía de referencia:** [Configuración de un servidor DNS esclavo con BIND9](https://www.javiercd.es/posts/servicios/dns/bind9/dns_esclavo/dns_esclavo/)
 
-> Sustituye los valores de ejemplo por las IP, dominio y nombres usados realmente en tu red. No publiques claves TSIG privadas ni datos sensibles.
+> Los dominios, nombres e IP que aparecen en los bloques de configuración son ejemplos. Deben sustituirse por los valores reales del laboratorio.
 
 ## Objetivo
 
-Configurar un servidor DNS esclavo que reciba automáticamente desde el servidor maestro las zonas directa e inversa. El secundario permite mantener la resolución de nombres disponible y repartir las consultas dentro de la red.
+Configurar un servidor DNS esclavo para que descargue y mantenga automáticamente una réplica de las zonas directa e inversa publicadas por un servidor DNS maestro.
 
 ## Escenario de laboratorio
 
-| Equipo | Nombre | Dirección IP | Función |
+| Equipo | Nombre de ejemplo | IP de ejemplo | Función |
 |---|---|---:|---|
-| Servidor maestro | `dns1.empresa.test` | `192.168.10.1` | Aloja las zonas maestras y autoriza la transferencia. |
-| Servidor esclavo | `dns2.empresa.test` | `192.168.10.200` | Descarga y sirve una copia de las zonas. |
-| Cliente | `cliente1` | `192.168.10.20` | Realiza consultas de verificación. |
+| DNS maestro | `dns1.empresa.test` | `192.168.10.1` | Mantiene las zonas originales y permite las transferencias. |
+| DNS esclavo | `dns2.empresa.test` | `192.168.10.200` | Recibe una copia de las zonas y responde como secundario. |
+| Cliente | `cliente1` | `192.168.10.20` | Comprueba la resolución DNS. |
 
-Zonas utilizadas en el ejemplo:
+Zonas de ejemplo:
 
-- Zona directa: `empresa.test`
-- Zona inversa: `10.168.192.in-addr.arpa`
+- Directa: `empresa.test`
+- Inversa: `10.168.192.in-addr.arpa`
 
-## 1. Preparar el DNS esclavo
+## 1. Preparar el servidor esclavo
 
-### Asignar el nombre del equipo
-
-En el servidor esclavo, establece el nombre del host en `/etc/hostname`:
+En el servidor que actuará como esclavo, configura su nombre de host y su nombre completo. En `/etc/hostname` usa, por ejemplo:
 
 ```text
 dns2
 ```
 
-Configura también `/etc/hosts` para asociar el FQDN con el host local:
+Añade la asociación local correspondiente en `/etc/hosts`:
 
 ```text
 127.0.1.1 dns2.empresa.test dns2
 ```
 
-Comprueba que el nombre completo se resuelve correctamente:
+Comprueba el FQDN:
 
 ```bash
 hostname -f
 ```
 
-La salida esperada es:
+La salida esperada es `dns2.empresa.test`.
 
-```text
-dns2.empresa.test
-```
+**Evidencia 1 — Preparación e identificación del servidor DNS esclavo**
 
-### Instalar BIND9
+![Preparación del entorno](Evidencia/Captura%20de%20pantalla%202026-10-08%20194535.png)
 
-Actualiza los repositorios e instala BIND9, las herramientas de consulta, la documentación y `rsync`:
+**Evidencia 2 — Configuración del hostname y comprobación del FQDN**
+
+![Comprobación del FQDN](Evidencia/Captura%20de%20pantalla%202026-10-08%20194552.png)
+
+## 2. Instalar BIND9
+
+Actualiza el sistema e instala BIND9, las utilidades de diagnóstico, la documentación y `rsync`:
 
 ```bash
 sudo apt update && sudo apt install -y bind9 bind9utils bind9-doc dnsutils rsync
 ```
 
-Activa el servicio y confirma que se inicia:
+Habilita el servicio y comprueba que está activo:
 
 ```bash
 sudo systemctl enable --now bind9
 sudo systemctl status bind9 --no-pager
 ```
 
-## 2. Configuración básica del esclavo
+**Evidencia 3 — Instalación de BIND9 y herramientas de administración DNS**
 
-Edita `/etc/bind/named.conf.options` en `dns2`. Este ejemplo permite consultas desde localhost y desde la red interna, habilita recursión y define reenviadores DNS públicos:
+![Instalación de BIND9](Evidencia/Captura%20de%20pantalla%202026-10-08%20194608.png)
+
+## 3. Configurar opciones de BIND
+
+Edita `/etc/bind/named.conf.options` en el servidor esclavo. El siguiente ejemplo permite consultas desde la red del laboratorio, habilita la recursión y configura reenviadores:
 
 ```conf
 options {
@@ -86,11 +92,15 @@ options {
 };
 ```
 
-En producción, limita `allow-query` a tus redes necesarias y revisa la política DNSSEC de tu organización.
+Limita `allow-query` a las redes que deban utilizar el resolver. En un entorno real, aplica la política DNSSEC de tu organización.
 
-## 3. Declarar las zonas esclavas
+**Evidencia 4 — Configuración de `named.conf.options`**
 
-Edita `/etc/bind/named.conf.local` en el servidor `dns2`:
+![Opciones de BIND](Evidencia/Captura%20de%20pantalla%202026-10-08%20194622.png)
+
+## 4. Declarar las zonas esclavas
+
+Edita `/etc/bind/named.conf.local` en `dns2` y define las zonas que serán transferidas desde el maestro:
 
 ```conf
 zone "empresa.test" {
@@ -106,14 +116,22 @@ zone "10.168.192.in-addr.arpa" {
 };
 ```
 
-Crea el directorio que contendrá las copias transferidas. El usuario `bind` debe disponer de permisos para escribir en él:
+Crea el directorio donde BIND guardará las copias transferidas y asigna los permisos al usuario del servicio:
 
 ```bash
 sudo mkdir -p /var/cache/bind/slaves
 sudo chown bind:bind /var/cache/bind/slaves
 ```
 
-Verifica la sintaxis y reinicia el servicio:
+**Evidencia 5 — Declaración de la zona directa como esclava**
+
+![Zona directa esclava](Evidencia/Captura%20de%20pantalla%202026-10-08%20194640.png)
+
+**Evidencia 6 — Declaración de la zona inversa y directorio de réplicas**
+
+![Zona inversa y directorio de réplicas](Evidencia/Captura%20de%20pantalla%202026-10-08%20194657.png)
+
+Valida la sintaxis y reinicia BIND:
 
 ```bash
 sudo named-checkconf
@@ -121,15 +139,23 @@ sudo systemctl restart bind9
 sudo journalctl -xeu bind9
 ```
 
-Comprueba que BIND ha descargado los ficheros de zona:
+**Evidencia 7 — Validación de la configuración y reinicio de BIND9**
+
+![Validación y reinicio](Evidencia/Captura%20de%20pantalla%202026-10-08%20194714.png)
+
+Comprueba que el secundario recibe o puede recibir las copias de zona:
 
 ```bash
-ls -l /var/cache/bind/slaves
+sudo ls -lh /var/cache/bind/slaves
 ```
 
-## 4. Autorizar al esclavo en el maestro
+**Evidencia 8 — Comprobación de zonas recibidas y registros de BIND**
 
-En `dns1`, edita `/etc/bind/named.conf.local`. El maestro debe permitir transferencias exclusivamente a la IP del esclavo:
+![Comprobación de transferencia](Evidencia/Captura%20de%20pantalla%202026-10-08%20194734.png)
+
+## 5. Autorizar transferencias en el maestro
+
+En el servidor `dns1`, edita `/etc/bind/named.conf.local`. Para evitar que la zona sea expuesta a hosts no autorizados, permite transferencias solamente a la IP del esclavo. `also-notify` avisa al secundario cuando se produce un cambio:
 
 ```conf
 zone "empresa.test" {
@@ -147,16 +173,18 @@ zone "10.168.192.in-addr.arpa" {
 };
 ```
 
-> El uso de `also-notify` hace que el maestro avise al esclavo al recargar una zona. Aun así, el esclavo también comprueba periódicamente el serial SOA según el intervalo `Refresh`.
+**Evidencia 9 — Autorización de transferencias desde el maestro al esclavo**
 
-### Zona directa en el maestro
+![Allow transfer en el maestro](Evidencia/Captura%20de%20pantalla%202026-10-08%20194754.png)
 
-El archivo `/var/cache/bind/db.empresa.test` puede contener una estructura como esta:
+## 6. Revisar las zonas del maestro
+
+La zona directa del maestro debe contener los dos servidores autoritativos y el registro A del secundario:
 
 ```dns
 $TTL 86400
 @ IN SOA dns1.empresa.test. root.empresa.test. (
-    2026100801 ; Serial: incrementar en cada cambio
+    2026100801 ; Incrementar en cada cambio
     604800     ; Refresh
     86400      ; Retry
     2419200    ; Expire
@@ -165,27 +193,23 @@ $TTL 86400
 ;
 @       IN NS dns1.empresa.test.
 @       IN NS dns2.empresa.test.
-@       IN MX 10 correo.empresa.test.
 
 $ORIGIN empresa.test.
 dns1    IN A 192.168.10.1
 dns2    IN A 192.168.10.200
-correo  IN A 192.168.10.2
-thor    IN A 192.168.10.3
-hela    IN A 192.168.10.4
-www     IN CNAME thor
-informatica IN CNAME thor
-ftp     IN CNAME hela
+www     IN A 192.168.10.3
 ```
 
-### Zona inversa en el maestro
+**Evidencia 10 — Zona directa del maestro con registros NS y A del esclavo**
 
-El archivo `/var/cache/bind/db.192.168.10` puede definirse así:
+![Zona directa maestro](Evidencia/Captura%20de%20pantalla%202026-10-08%20194941.png)
+
+La zona inversa debe resolver la dirección IP del secundario hacia su nombre completo:
 
 ```dns
 $TTL 86400
 @ IN SOA dns1.empresa.test. root.empresa.test. (
-    2026100801 ; Serial: incrementar en cada cambio
+    2026100801 ; Incrementar en cada cambio
     604800
     86400
     2419200
@@ -197,13 +221,14 @@ $TTL 86400
 
 $ORIGIN 10.168.192.in-addr.arpa.
 1   IN PTR dns1.empresa.test.
-2   IN PTR correo.empresa.test.
-3   IN PTR thor.empresa.test.
-4   IN PTR hela.empresa.test.
 200 IN PTR dns2.empresa.test.
 ```
 
-Valida y recarga BIND en el maestro:
+**Evidencia 11 — Zona inversa del maestro con el registro PTR del esclavo**
+
+![Zona inversa maestro](Evidencia/Captura%20de%20pantalla%202026-10-08%20195004.png)
+
+Antes de aplicar cambios, valida ambos archivos de zona y recarga el servicio:
 
 ```bash
 sudo named-checkconf
@@ -212,106 +237,48 @@ sudo named-checkzone 10.168.192.in-addr.arpa /var/cache/bind/db.192.168.10
 sudo rndc reload
 ```
 
-## 5. Pruebas de transferencia y resolución
+**Evidencia 12 — Validación, recarga y sincronización de las zonas DNS**
 
-### Confirmar la transferencia de zonas
+![Recarga y sincronización](Evidencia/Captura%20de%20pantalla%202026-10-08%20195039.png)
 
-En el esclavo, observa los eventos de BIND mientras se reinicia o recarga el servicio en el maestro:
+## 7. Pruebas de resolución
 
-```bash
-sudo journalctl -u named -f
-```
-
-También puedes revisar los ficheros transferidos:
+Para verificar que maestro y esclavo responden con los mismos datos, realiza consultas explícitas contra ambos servidores:
 
 ```bash
-sudo ls -lh /var/cache/bind/slaves
-```
+dig @192.168.10.1 empresa.test SOA +noall +answer
+dig @192.168.10.200 empresa.test SOA +noall +answer
 
-### Probar una modificación en el maestro
+dig @192.168.10.1 www.empresa.test A +noall +answer
+dig @192.168.10.200 www.empresa.test A +noall +answer
 
-1. Añade en la zona directa del maestro un nuevo registro:
-
-```dns
-sentinel IN A 192.168.10.25
-```
-
-2. Incrementa el serial SOA, por ejemplo de `2026100801` a `2026100802`. Este paso es obligatorio: si el serial no aumenta, el esclavo no descargará la nueva versión de la zona.
-
-3. Valida el fichero y recarga la zona:
-
-```bash
-sudo named-checkzone empresa.test /var/cache/bind/db.empresa.test
-sudo rndc reload empresa.test
-```
-
-4. Como comprobación local del secundario, puedes sincronizar los datos en disco:
-
-```bash
-sudo rndc sync
-```
-
-### Consultar ambos servidores
-
-Desde un cliente, las dos consultas deben devolver el mismo registro A:
-
-```bash
-dig @192.168.10.1 sentinel.empresa.test A +noall +answer
-dig @192.168.10.200 sentinel.empresa.test A +noall +answer
-```
-
-Resultado esperado en ambos casos:
-
-```text
-sentinel.empresa.test. 86400 IN A 192.168.10.25
-```
-
-Comprueba también la zona inversa:
-
-```bash
 dig @192.168.10.200 -x 192.168.10.200 +noall +answer
 ```
 
-## Evidencias y descripción de capturas
+Los seriales SOA de ambos servidores deben coincidir. Cuando modifiques un registro en el maestro, incrementa obligatoriamente el serial SOA, valida el fichero y ejecuta `sudo rndc reload empresa.test`; después comprueba que el cambio también se responde desde el esclavo.
 
-Las capturas siguientes son las evidencias almacenadas en `Evidencia/`. Cada una está asociada a una etapa de la configuración o a una prueba que debe aparecer en el laboratorio.
+**Evidencia 13 — Prueba final de resolución DNS desde el maestro y el esclavo**
 
-| Nº | Captura | Descripción de configuración o prueba |
-|---:|---|---|
-| 1 | ![Evidencia 1](Evidencia/Captura%20de%20pantalla%202026-10-08%20194535.png) | Preparación del entorno del DNS esclavo: identificación del servidor y comprobación inicial del sistema. |
-| 2 | ![Evidencia 2](Evidencia/Captura%20de%20pantalla%202026-10-08%20194552.png) | Configuración del nombre de host y verificación del FQDN mediante `hostname -f`. |
-| 3 | ![Evidencia 3](Evidencia/Captura%20de%20pantalla%202026-10-08%20194608.png) | Instalación de BIND9 y de las herramientas necesarias para administración y diagnóstico DNS. |
-| 4 | ![Evidencia 4](Evidencia/Captura%20de%20pantalla%202026-10-08%20194622.png) | Revisión de la configuración base de BIND en `named.conf.options`, incluyendo la red autorizada y los reenviadores. |
-| 5 | ![Evidencia 5](Evidencia/Captura%20de%20pantalla%202026-10-08%20194640.png) | Declaración de la zona directa como esclava en `named.conf.local`, indicando la IP del maestro y el archivo de réplica. |
-| 6 | ![Evidencia 6](Evidencia/Captura%20de%20pantalla%202026-10-08%20194657.png) | Declaración de la zona inversa como esclava y preparación del directorio `/var/cache/bind/slaves` para las transferencias. |
-| 7 | ![Evidencia 7](Evidencia/Captura%20de%20pantalla%202026-10-08%20194714.png) | Validación de la sintaxis de BIND y reinicio del servicio en el servidor secundario. |
-| 8 | ![Evidencia 8](Evidencia/Captura%20de%20pantalla%202026-10-08%20194734.png) | Comprobación de los registros de BIND y de la recepción de las zonas transferidas en el esclavo. |
-| 9 | ![Evidencia 9](Evidencia/Captura%20de%20pantalla%202026-10-08%20194754.png) | Configuración del maestro: autorización de transferencias de zona al servidor DNS esclavo mediante `allow-transfer`. |
-| 10 | ![Evidencia 10](Evidencia/Captura%20de%20pantalla%202026-10-08%20194941.png) | Actualización de la zona directa del maestro con los registros NS y A correspondientes a `dns2`. |
-| 11 | ![Evidencia 11](Evidencia/Captura%20de%20pantalla%202026-10-08%20195004.png) | Configuración o actualización de la zona inversa para que la IP del esclavo resuelva a su FQDN. |
-| 12 | ![Evidencia 12](Evidencia/Captura%20de%20pantalla%202026-10-08%20195039.png) | Recarga de BIND y observación de los eventos de transferencia o sincronización de zonas. |
-| 13 | ![Evidencia 13](Evidencia/Captura%20de%20pantalla%202026-10-08%20195057.png) | Prueba final con `dig`: verificación de que maestro y esclavo responden de forma coherente a las consultas DNS. |
-
-> Las descripciones se han organizado según la secuencia técnica de la guía de referencia. Revisa que cada descripción corresponda visualmente con el contenido de su captura antes de entregar la práctica.
+![Prueba final con dig](Evidencia/Captura%20de%20pantalla%202026-10-08%20195057.png)
 
 ## Resolución de problemas
 
-| Problema | Comprobación y solución |
+| Incidencia | Comprobación |
 |---|---|
-| El servicio BIND no inicia | Ejecuta `sudo named-checkconf` y revisa `sudo journalctl -xeu bind9`. |
-| El esclavo no descarga las zonas | Confirma que `masters` apunta al maestro correcto, que `allow-transfer` contiene la IP real del esclavo, que TCP/53 está permitido y que el directorio de destino pertenece a `bind:bind`. |
-| El secundario conserva registros antiguos | Aumenta el serial SOA en el maestro, valida el fichero y ejecuta `sudo rndc reload`. |
-| El nombre devuelve `NXDOMAIN` en el esclavo | Comprueba que el cambio está en la zona del maestro, que el serial se incrementó y que la transferencia se refleja en los logs. |
-| Las consultas externas fallan | Revisa `allow-query`, las reglas de firewall UDP/TCP 53 y la configuración de red. |
+| BIND no se inicia | Ejecuta `sudo named-checkconf` y consulta `sudo journalctl -xeu bind9`. |
+| El esclavo no descarga la zona | Comprueba `masters`, `allow-transfer`, conectividad TCP/53 y permisos de `/var/cache/bind/slaves`. |
+| El esclavo muestra datos antiguos | Aumenta el serial SOA en el maestro, valida la zona y recárgala con `rndc reload`. |
+| Una consulta devuelve `NXDOMAIN` | Comprueba que el registro exista en el maestro, que el serial se haya incrementado y que la transferencia haya finalizado. |
+| Los clientes no consultan el servidor | Revisa `allow-query`, la configuración del cliente y las reglas de firewall UDP/TCP 53. |
 
 ## Buenas prácticas
 
-- Restringe `allow-transfer` solo a los servidores secundarios autorizados.
-- Protege transferencias de zona con TSIG en entornos de producción.
-- Incrementa siempre el serial SOA tras cualquier modificación de registros.
-- Mantén al menos dos servidores DNS autoritativos para mejorar la disponibilidad.
-- Conserva las capturas de pruebas, los logs relevantes y los archivos de configuración como evidencias del laboratorio.
+- Restringe siempre `allow-transfer` a las IP de los secundarios autorizados.
+- Usa TSIG para autenticar transferencias en entornos de producción.
+- Incrementa el serial SOA en toda modificación.
+- Mantén más de un servidor autoritativo para mejorar la disponibilidad.
+- Conserva las capturas y los logs como evidencia de la práctica.
 
 ## Créditos
 
-La secuencia de configuración se basa en la guía de Francisco Javier Cruces Doval: [Configuración de un servidor DNS esclavo con BIND9](https://www.javiercd.es/posts/servicios/dns/bind9/dns_esclavo/dns_esclavo/), publicada el 10 de mayo de 2025. El contenido se ha adaptado al presente repositorio y a sus evidencias.
+La estructura técnica de esta práctica se basa en la guía de Francisco Javier Cruces Doval, [Configuración de un servidor DNS esclavo con BIND9](https://www.javiercd.es/posts/servicios/dns/bind9/dns_esclavo/dns_esclavo/), publicada el 10 de mayo de 2025. El texto ha sido adaptado y las evidencias son capturas propias almacenadas en este repositorio.
