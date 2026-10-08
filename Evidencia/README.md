@@ -1,0 +1,1 @@
+captures Configuraci-n-de-un-servidor-DNS-esclavo-con-BIND9
